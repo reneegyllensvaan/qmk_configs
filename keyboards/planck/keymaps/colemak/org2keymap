@@ -1,0 +1,55 @@
+#!/usr/bin/env ruby
+sections = Hash.new('')
+section_layouts = {}
+active_section = 'none'
+
+# Parse all the trees into code sections
+File.open(ARGV[0], 'r') do |file|
+  file.each_line do |line|
+    new_section = /^\* (\S+)\s*(?::(\S+)?:)?$/.match(line)
+    if new_section
+      if new_section[1].downcase == "meta"
+        active_section = "meta"
+      else
+        active_section = new_section[1]
+        if new_section[2]
+          section_layouts[new_section[1]] = new_section[2]
+        end
+      end
+    else
+      sections[active_section] += line
+    end
+  end
+end
+
+
+# Render the metadata section without transforming it
+puts "// Generated from #{ARGV[0]}\n"
+if sections["meta"]
+  puts "// Keymap meta-code"
+  puts sections["meta"]
+end
+sections.delete "meta"
+sections.delete "none"
+
+# Render each other section from tables to keymaps
+puts "const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {"
+puts sections.map {|map, section|
+  # First, output the array index and keymap macro for the layer
+  "  [#{map}] = #{section_layouts[map]}(\n"\
+  + section.each_line.reject {
+    # filter out column width descriptor rows
+    |k| k.match(/<[0-9]+>/)
+  }.map {
+    |line|
+    '    ' + line.split(/\s*\|\s*/).reject {
+      # some keymaps have "holes", e.g. atreus, don't comma separate them
+      |k| k.empty?
+    }.map {
+      # use '\' as an escape from prefixing with 'KC_'
+      |k| k[0] == '\\' ? k[1..-1] : ('KC_' + k)
+    }.join(', ')
+  }.join(",\n")\
+  + "\n  )"
+}.join(",\n")
+puts "};"
